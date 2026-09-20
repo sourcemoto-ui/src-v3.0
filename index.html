@@ -10264,106 +10264,118 @@ function handleSyncWorkforcePerformance(data) {
 
 
                 setIsUploadingOrder(false);
-
                 setDraftOrder(INITIAL_ORDER_STATE);
-
                 setEditingOrderId(null);
 
-
-
                 if (orderPayload.status === 'completed') {
-
                     setSelectedRecord(targetRecord);
-
                     setShowReceiptModal(true);
-
                 }
-
                 setView('dashboard');
-
             };
 
-
-
-            const handleStatusChange = (id, newStatus) => {
-
-                const updated = records.map(r => r.id === id ? { ...r, status: newStatus, progressStage: newStatus === 'completed' ? '已完工' : '維修中' } : r);
-
+            const handleStatusChange = async (id, newStatus) => {
+                const newStage = newStatus === 'completed' ? '已完工' : '維修中';
+                const updated = records.map(r => r.id === id ? { ...r, status: newStatus, progressStage: newStage } : r);
                 setRecords(updated);
+                saveToLocalSafe('moto_records', updated);
 
                 const target = updated.find(r => r.id === id);
-
                 if (target && newStatus === 'completed') {
-
                     setSelectedRecord(target);
-
                     setShowReceiptModal(true);
 
+                    // 完工時同步維護客戶車籍資料
+                    if (target.plate) {
+                        const cPlate = String(target.plate).trim().toUpperCase();
+                        setCustomers(prev => {
+                            const exist = prev.find(c => String(c.plate).trim().toUpperCase() === cPlate);
+                            const custObj = {
+                                id: exist ? exist.id : String(Date.now()),
+                                plate: cPlate,
+                                name: target.name || (exist ? exist.name : ''),
+                                phone: target.phone || (exist ? exist.phone : ''),
+                                email: target.email || (exist ? exist.email : ''),
+                                bikeModel: target.bikeModel || (exist ? exist.bikeModel : ''),
+                                year: target.year || (exist ? exist.year : ''),
+                                lastVisit: target.date || new Date().toLocaleDateString('zh-TW'),
+                                lastMileage: target.mileage || (exist ? exist.lastMileage : '')
+                            };
+                            const next = exist ? prev.map(c => String(c.plate).trim().toUpperCase() === cPlate ? custObj : c) : [...prev, custObj];
+                            saveToLocalSafe('moto_customers', next);
+                            return next;
+                        });
+                    }
                 }
 
-                safeFetchGAS(gasUrl, { action: 'save_settings', records: updated });
-
+                try {
+                    await safeFetchGAS(gasUrl, {
+                        action: 'update_order',
+                        orderId: String(id),
+                        fields: { status: newStatus, progressStage: newStage },
+                        record: target
+                    });
+                } catch (e) {
+                    console.warn("Update status cloud sync error:", e);
+                }
             };
 
-
-
-            const handleUpdateOrderStage = (id, newStage) => {
-
+            const handleUpdateOrderStage = async (id, newStage) => {
                 const updated = records.map(r => r.id === id ? { ...r, progressStage: newStage } : r);
-
                 setRecords(updated);
+                saveToLocalSafe('moto_records', updated);
+                const target = updated.find(r => r.id === id);
 
-                safeFetchGAS(gasUrl, { action: 'save_settings', records: updated });
-
+                try {
+                    await safeFetchGAS(gasUrl, {
+                        action: 'update_order',
+                        orderId: String(id),
+                        fields: { progressStage: newStage },
+                        record: target
+                    });
+                } catch (e) {
+                    console.warn("Update stage cloud sync error:", e);
+                }
             };
 
-
-
-            const handleUpdateOrderField = (id, fields) => {
-
+            const handleUpdateOrderField = async (id, fields) => {
                 const updated = records.map(r => r.id === id ? { ...r, ...fields } : r);
-
                 setRecords(updated);
+                saveToLocalSafe('moto_records', updated);
+                const target = updated.find(r => r.id === id);
 
-                safeFetchGAS(gasUrl, { action: 'save_settings', records: updated });
-
+                try {
+                    await safeFetchGAS(gasUrl, {
+                        action: 'update_order',
+                        orderId: String(id),
+                        fields: fields,
+                        record: target
+                    });
+                } catch (e) {
+                    console.warn("Update field cloud sync error:", e);
+                }
             };
-
-
-
-            // 破壞性操作防護：刪除工單需主管授權
 
             const deleteRecord = (id) => {
-
                 const executeDelete = () => {
-
-                    showConfirm('確定要作廢刪除此工單紀錄嗎？\n(此操作將同步自雲端試算表中移除)', () => {
-
+                    showConfirm('確定要作廢刪除此工單紀錄嗎？\n(此操作將同步自雲端試算表中移除該筆工單)', async () => {
                         const updated = records.filter(r => r.id !== id);
-
                         setRecords(updated);
-
-                        safeFetchGAS(gasUrl, { action: 'save_settings', records: updated });
-
+                        saveToLocalSafe('moto_records', updated);
+                        try {
+                            await safeFetchGAS(gasUrl, { action: 'delete_order', orderId: String(id) });
+                        } catch (e) {
+                            console.warn("Delete order cloud error:", e);
+                        }
                         showAlert('工單已成功作廢刪除！');
-
                     });
-
                 };
-
                 if (!isUnlocked) {
-
                     requestAdminAuth(executeDelete);
-
                 } else {
-
                     executeDelete();
-
                 }
-
             };
-
-
 
             const requestAdminAuth = (actionCallback, forcePin = false) => {
 
