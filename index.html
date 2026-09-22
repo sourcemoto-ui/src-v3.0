@@ -1267,7 +1267,13 @@
 
             const fileInputRef2 = useRef(null);
 
-
+            const handlePhotoChange = async (e, field) => {
+                const file = e.target.files && e.target.files[0];
+                if (file) {
+                    const compressed = await compressImage(file);
+                    if (compressed) updateDraft(field, compressed);
+                }
+            };
 
             const hourlyRate = Number(shopInfo.hourlyRate || 800);
 
@@ -3363,408 +3369,238 @@
 
 
                     {/* TAB 1: 等待備料看板 */}
-
                     {activeTab === 'waiting-parts' && (
-
                         <div className="space-y-4">
-
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-
                                 {waitingPartsRecords.map(r => {
-
                                     const items = normalizeItems(r.items);
-
                                     return (
-
                                         <div key={r.id} className="bg-white rounded-2xl border-2 border-orange-200 p-4 shadow-xs flex flex-col justify-between space-y-3 relative hover:shadow-md transition-shadow">
-
                                             <div>
-
                                                 <div className="flex justify-between items-start border-b border-slate-100 pb-2.5">
-
                                                     <div>
-
                                                         <div className="text-base font-black text-slate-900 font-mono tracking-wider">{r.plate}</div>
-
                                                         <div className="text-slate-600 font-bold mt-0.5">{r.name || '現場散客'} {r.phone ? `(${r.phone})` : ''}</div>
-
                                                     </div>
-
                                                     <div className="flex items-center gap-1">
-
                                                         <span className="bg-orange-100 text-orange-800 font-black px-2 py-0.5 rounded-full text-[10px]">
-
                                                             📦 等待備料
-
                                                         </span>
-
                                                         <button 
-
-                                                            onClick={() => deleteRecord(r.id)} 
-
-                                                            title="作廢刪除打錯單" 
-
-                                                            className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-
+                                                            type="button" 
+                                                            onClick={() => { setSelectedRecord(r); setShowReceiptModal(true); }} 
+                                                            title="列印備料品項單據" 
+                                                            className="p-1 text-slate-500 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
                                                         >
-
-                                                            <Trash2 size={15}/>
-
+                                                            <Printer size={15}/>
                                                         </button>
-
+                                                        <button 
+                                                            onClick={() => deleteRecord(r.id)} 
+                                                            title="作廢刪除打錯單" 
+                                                            className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                                        >
+                                                            <Trash2 size={15}/>
+                                                        </button>
                                                     </div>
-
                                                 </div>
-
-
 
                                                 <div className="py-2 text-[11px] text-slate-500 space-y-1">
-
                                                     <div className="flex justify-between">
-
                                                         <span>車種: <strong className="text-slate-700">{r.bikeModel || '-'}</strong></span>
-
                                                         <span>開單: {formatDate(r.date)}</span>
-
                                                     </div>
-
                                                     <div className="flex justify-between text-orange-900 bg-orange-50 p-1.5 rounded-lg font-bold">
-
                                                         <span>預計到貨日:</span>
-
                                                         <span>{r.partsDueDate || '未指定日期'}</span>
-
                                                     </div>
-
                                                     {r.hasDeposit && (
-
                                                         <div className="flex justify-between text-indigo-900 bg-indigo-50 p-1.5 rounded-lg font-bold">
-
                                                             <span>已收定金: ${Number(r.depositAmount || 0).toLocaleString()}</span>
-
                                                             <span>尚欠尾款: ${Number(r.remainingBalance || 0).toLocaleString()}</span>
-
                                                         </div>
-
                                                     )}
-
                                                 </div>
-
-
 
                                                 <div className="border-t border-dashed border-slate-200 pt-2 space-y-1 max-h-36 overflow-y-auto">
-
                                                     <span className="text-[10px] font-bold text-slate-400 block">待料品項與到貨核銷：</span>
-
                                                     {items.map((it, idx) => {
-
                                                         const isFulfilled = getItemStatus(it) === 'fulfilled';
-
                                                         return (
-
                                                             <label key={it.id || idx} className="flex items-center gap-2 p-1 rounded hover:bg-slate-50 cursor-pointer">
-
                                                                 <input 
-
                                                                     type="checkbox" 
-
                                                                     checked={isFulfilled} 
-
                                                                     onChange={() => handleItemCheckboxInCard(r, it.id)} 
-
                                                                     className="w-3.5 h-3.5 rounded text-emerald-600 accent-emerald-600" 
-
                                                                 />
-
                                                                 <span className={`flex-1 truncate ${isFulfilled ? 'line-through text-slate-400' : 'font-bold text-slate-700'}`}>
-
                                                                     {it.name} x{it.qty || 1}
-
                                                                 </span>
-
                                                                 {isFulfilled ? <span className="text-[10px] text-emerald-600 font-bold">已到貨</span> : <span className="text-[10px] text-orange-500 font-bold">未到</span>}
-
                                                             </label>
-
                                                         );
-
                                                     })}
-
                                                 </div>
-
                                             </div>
 
-
-
-                                            <div className="border-t border-slate-100 pt-3 flex gap-2">
-
+                                            <div className="border-t border-slate-100 pt-3 flex gap-1.5">
                                                 <button 
-
                                                     type="button" 
-
+                                                    onClick={() => { setSelectedRecord(r); setShowReceiptModal(true); }} 
+                                                    className="px-2.5 py-2 rounded-xl bg-orange-50 hover:bg-orange-100 text-orange-800 border border-orange-200 font-bold text-xs flex items-center justify-center gap-1 transition-colors"
+                                                    title="列印此車輛備料品項明細單"
+                                                >
+                                                    <Printer size={14}/> <span>列印備料單</span>
+                                                </button>
+                                                <button 
+                                                    type="button" 
                                                     onClick={() => handleUpdateOrderStage(r.id, '維修中')} 
-
                                                     className="flex-1 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center justify-center gap-1 shadow-xs transition-colors"
-
                                                 >
-
                                                     <Wrench size={14}/> 零件到齊 ➔ 轉維修中
-
                                                 </button>
-
                                                 <button 
-
                                                     type="button" 
-
                                                     onClick={() => handleEditOrder(r)} 
-
                                                     className="px-3 py-2 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold text-xs"
-
                                                 >
-
                                                     編輯
-
                                                 </button>
-
                                             </div>
-
                                         </div>
-
                                     );
-
                                 })}
-
                             </div>
-
                             {waitingPartsRecords.length === 0 && (
-
                                 <div className="text-center py-16 bg-white rounded-2xl border border-dashed border-slate-300 text-slate-400">
-
                                     <Package size={40} className="mx-auto mb-2 text-slate-300" />
-
                                     <p className="font-bold">目前沒有等待備料中的車輛</p>
-
                                 </div>
-
                             )}
-
                         </div>
-
                     )}
-
-
 
                     {/* TAB 2: 維修處理中看板 */}
-
                     {activeTab === 'in-progress' && (
-
                         <div className="space-y-4">
-
                             <div className="flex gap-2 bg-white p-2 rounded-xl border border-slate-200 w-fit">
-
                                 {['all', '維修中', '完工待交車'].map(filterOpt => (
-
                                     <button 
-
                                         key={filterOpt} 
-
                                         onClick={() => setInProgressFilter(filterOpt)}
-
                                         className={`px-3 py-1 rounded-lg font-bold text-xs transition-all ${inProgressFilter === filterOpt ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'}`}
-
                                     >
-
                                         {filterOpt === 'all' ? '全部處理中' : filterOpt}
-
                                     </button>
-
                                 ))}
-
                             </div>
-
-
 
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-
                                 {inProgressRecords.map(r => {
-
                                     const items = normalizeItems(r.items);
-
                                     const isReadyForPickup = r.progressStage === '完工待交車';
-
                                     return (
-
                                         <div key={r.id} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs flex flex-col justify-between space-y-3 relative hover:shadow-md transition-shadow">
-
                                             <div>
-
                                                 <div className="flex justify-between items-start border-b border-slate-100 pb-2.5">
-
                                                     <div>
-
                                                         <div className="text-base font-black text-slate-900 font-mono tracking-wider">{r.plate}</div>
-
                                                         <div className="text-slate-600 font-bold mt-0.5">{r.name || '現場車主'} {r.phone ? `(${r.phone})` : ''}</div>
-
                                                     </div>
-
                                                     <div className="flex items-center gap-1">
-
                                                         <span className={`font-black px-2 py-0.5 rounded-full text-[10px] ${isReadyForPickup ? 'bg-indigo-100 text-indigo-800' : 'bg-blue-100 text-blue-800'}`}>
-
                                                             {r.progressStage || '維修中'}
-
                                                         </span>
-
                                                         <button 
-
-                                                            onClick={() => deleteRecord(r.id)} 
-
-                                                            title="作廢刪除打錯單" 
-
-                                                            className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-
+                                                            type="button" 
+                                                            onClick={() => { setSelectedRecord(r); setShowReceiptModal(true); }} 
+                                                            title="列印施工工單" 
+                                                            className="p-1 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                                                         >
-
-                                                            <Trash2 size={15}/>
-
+                                                            <Printer size={15}/>
                                                         </button>
-
+                                                        <button 
+                                                            onClick={() => deleteRecord(r.id)} 
+                                                            title="作廢刪除打錯單" 
+                                                            className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                                        >
+                                                            <Trash2 size={15}/>
+                                                        </button>
                                                     </div>
-
                                                 </div>
-
-
 
                                                 <div className="py-2 text-[11px] text-slate-500 space-y-1">
-
                                                     <div className="flex justify-between">
-
                                                         <span>車種: <strong className="text-slate-700">{r.bikeModel || '-'}</strong></span>
-
                                                         <span>里程: {r.mileage || '-'} km</span>
-
                                                     </div>
-
                                                     <div className="flex justify-between font-bold text-slate-800">
-
                                                         <span>預估總額: ${Number(r.total || 0).toLocaleString()}</span>
-
                                                         {r.hasDeposit ? (
-
                                                             <span className="text-indigo-600">待收尾款: ${Number(r.remainingBalance || 0).toLocaleString()}</span>
-
                                                         ) : (
-
                                                             <span className="text-slate-500">{r.paymentMethod || '現金'}</span>
-
                                                         )}
-
                                                     </div>
-
                                                 </div>
-
-
 
                                                 <div className="border-t border-dashed border-slate-200 pt-2 space-y-1 max-h-36 overflow-y-auto">
-
                                                     <span className="text-[10px] font-bold text-slate-400 block">維修項目：</span>
-
                                                     {items.map((it, idx) => (
-
                                                         <div key={idx} className="text-xs text-slate-700 flex justify-between">
-
                                                             <span className="truncate">• {it.name} x{it.qty || 1}</span>
-
                                                             <span className="font-mono text-slate-500">${Math.round(it.subtotal !== undefined && it.subtotal !== null && it.subtotal !== '' ? evaluateMathExpression(it.subtotal, 0) : ((evaluateMathExpression(it.partsPrice, 0) + (evaluateMathExpression(it.laborHours, 0) * 800)) * Number(it.qty || 1))).toLocaleString()}</span>
-
                                                         </div>
-
                                                     ))}
-
                                                 </div>
-
                                             </div>
-
-
 
                                             <div className="border-t border-slate-100 pt-3 flex flex-wrap gap-1.5">
-
-                                                {!isReadyForPickup ? (
-
-                                                    <button 
-
-                                                        type="button" 
-
-                                                        onClick={() => handleUpdateOrderStage(r.id, '完工待交車')} 
-
-                                                        className="flex-1 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition-colors"
-
-                                                    >
-
-                                                        維修完成 ➔ 待交車
-
-                                                    </button>
-
-                                                ) : (
-
-                                                    <button 
-
-                                                        type="button" 
-
-                                                        onClick={() => handleStatusChange(r.id, 'completed')} 
-
-                                                        className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-colors shadow-xs"
-
-                                                    >
-
-                                                        交車收款 ➔ 結案移至歷史
-
-                                                    </button>
-
-                                                )}
-
                                                 <button 
-
                                                     type="button" 
-
-                                                    onClick={() => handleEditOrder(r)} 
-
-                                                    className="px-3 py-2 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold text-xs"
-
+                                                    onClick={() => { setSelectedRecord(r); setShowReceiptModal(true); }} 
+                                                    className="px-2.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 font-bold text-xs flex items-center gap-1 transition-colors"
+                                                    title="列印維修施工工單"
                                                 >
-
-                                                    編輯
-
+                                                    <Printer size={14}/> <span>工單</span>
                                                 </button>
-
+                                                {!isReadyForPickup ? (
+                                                    <button 
+                                                        type="button" 
+                                                        onClick={() => handleUpdateOrderStage(r.id, '完工待交車')} 
+                                                        className="flex-1 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition-colors"
+                                                    >
+                                                        維修完成 ➔ 待交車
+                                                    </button>
+                                                ) : (
+                                                    <button 
+                                                        type="button" 
+                                                        onClick={() => handleStatusChange(r.id, 'completed')} 
+                                                        className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-colors shadow-xs"
+                                                    >
+                                                        交車收款 ➔ 結案移至歷史
+                                                    </button>
+                                                )}
+                                                <button 
+                                                    type="button" 
+                                                    onClick={() => handleEditOrder(r)} 
+                                                    className="px-3 py-2 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold text-xs"
+                                                >
+                                                    編輯
+                                                </button>
                                             </div>
-
                                         </div>
-
                                     );
-
                                 })}
-
                             </div>
-
                             {inProgressRecords.length === 0 && (
-
                                 <div className="text-center py-16 bg-white rounded-2xl border border-dashed border-slate-300 text-slate-400">
-
                                     <Wrench size={40} className="mx-auto mb-2 text-slate-300" />
-
                                     <p className="font-bold">目前沒有現場維修中的工單</p>
-
                                 </div>
-
                             )}
-
                         </div>
-
                     )}
-
-
 
                     {/* TAB 3: 歷史完工工單與營收自訂區間結算 */}
 
@@ -9636,220 +9472,219 @@ function handleSyncWorkforcePerformance(data) {
 
 
         const ReceiptModal = ({ showReceiptModal, setShowReceiptModal, selectedRecord, shopInfo }) => {
-
             if (!showReceiptModal || !selectedRecord) return null;
-
-
 
             const printReceipt = () => window.print();
 
+            const isWaitingParts = selectedRecord.progressStage === '等待備料';
+            const isCompleted = selectedRecord.status === 'completed';
+            const isReadyForPickup = selectedRecord.progressStage === '完工待交車';
 
-
-            const shareToLine = () => {
-
-                const items = normalizeItems(selectedRecord.items);
-
-                let txt = `【${shopInfo.name || '車行'}】維修結帳收據\n`;
-
-                txt += `車牌號碼: ${selectedRecord.plate}\n`;
-
-                txt += `完工日期: ${formatDate(selectedRecord.date)}\n`;
-
-                txt += `--------------------------\n`;
-
-                items.forEach((it, idx) => {
-
-                    txt += `${idx + 1}. ${it.name} x${it.qty || 1}\n`;
-
-                });
-
-                txt += `--------------------------\n`;
-
-                txt += `總計金額: $${Number(selectedRecord.total || 0).toLocaleString()} 元\n`;
-
-                if (selectedRecord.hasDeposit) {
-
-                    txt += `(已收定金: $${Number(selectedRecord.depositAmount || 0).toLocaleString()} ｜ 結清尾款: $${Number(selectedRecord.remainingBalance || 0).toLocaleString()})\n`;
-
-                }
-
-                txt += `感謝您的光臨，祝您行車平安！`;
-
-                window.open(`https://line.me/R/msg/text/?${encodeURIComponent(txt)}`, '_blank');
-
-            };
-
-
+            const docTitle = isWaitingParts 
+                ? '零件採購備料品項明細單' 
+                : isCompleted 
+                    ? '維修保養結帳收據' 
+                    : '車輛維修施工單';
 
             const items = normalizeItems(selectedRecord.items);
-
             const insp = selectedRecord.inspection || INITIAL_INSPECTION;
 
+            const shareToLine = () => {
+                if (isWaitingParts) {
+                    let txt = `【${shopInfo.name || '車行'}】零件採購備料品項清單\n`;
+                    txt += `車牌號碼: ${selectedRecord.plate}\n`;
+                    txt += `車主姓名: ${selectedRecord.name || '車主'} ${selectedRecord.phone ? '(' + selectedRecord.phone + ')' : ''}\n`;
+                    txt += `車種型號: ${selectedRecord.bikeModel || '-'}\n`;
+                    txt += `預計到貨日: ${selectedRecord.partsDueDate || '未指定'}\n`;
+                    txt += `--------------------------\n`;
+                    txt += `【待備料品項清單】\n`;
+                    items.forEach((it, idx) => {
+                        const st = getItemStatus(it);
+                        const tag = st === 'fulfilled' ? '✅已到貨' : st === 'processing' ? '🔄處理中' : '⬜待料中';
+                        txt += `${idx + 1}. ${it.name} x${it.qty || 1} [${tag}]\n`;
+                    });
+                    txt += `--------------------------\n`;
+                    txt += `預估總額: $${Number(selectedRecord.total || 0).toLocaleString()} 元\n`;
+                    if (selectedRecord.hasDeposit) {
+                        txt += `已收定金: $${Number(selectedRecord.depositAmount || 0).toLocaleString()} ｜ 結清尾款: $${Number(selectedRecord.remainingBalance || 0).toLocaleString()}\n`;
+                    }
+                    if (selectedRecord.notes) txt += `備註: ${selectedRecord.notes}\n`;
+                    txt += `門市電話: ${shopInfo.phone || ''}`;
+                    window.open(`https://line.me/R/msg/text/?${encodeURIComponent(txt)}`, '_blank');
+                    return;
+                }
 
+                let txt = `【${shopInfo.name || '車行'}】${docTitle}\n`;
+                txt += `車牌號碼: ${selectedRecord.plate}\n`;
+                txt += `日期: ${formatDate(selectedRecord.date)}\n`;
+                txt += `--------------------------\n`;
+                items.forEach((it, idx) => {
+                    txt += `${idx + 1}. ${it.name} x${it.qty || 1}\n`;
+                });
+                txt += `--------------------------\n`;
+                txt += `總計金額: $${Number(selectedRecord.total || 0).toLocaleString()} 元\n`;
+                if (selectedRecord.hasDeposit) {
+                    txt += `(已收定金: $${Number(selectedRecord.depositAmount || 0).toLocaleString()} ｜ 結清尾款: $${Number(selectedRecord.remainingBalance || 0).toLocaleString()})\n`;
+                }
+                txt += `感謝您的光臨，祝您行車平安！`;
+                window.open(`https://line.me/R/msg/text/?${encodeURIComponent(txt)}`, '_blank');
+            };
 
             return (
-
                 <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center z-[9999] p-4">
-
                     <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
-
                         <div className="bg-slate-900 text-white p-3.5 flex justify-between items-center no-print">
-
-                            <span className="font-bold text-xs">完工收據預覽</span>
-
+                            <span className="font-bold text-xs">{docTitle}預覽</span>
                             <div className="flex gap-1.5">
-
                                 <button onClick={shareToLine} className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 rounded-lg text-xs font-bold flex items-center gap-1">
-
                                     <ShareNetwork size={13}/> LINE
-
                                 </button>
-
                                 <button onClick={printReceipt} className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 rounded-lg text-xs font-bold flex items-center gap-1">
-
                                     <Printer size={13}/> 列印
-
                                 </button>
-
                                 <button onClick={() => setShowReceiptModal(false)} className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs font-bold">
-
                                     關閉
-
                                 </button>
-
                             </div>
-
                         </div>
-
-
 
                         <div className="p-6 overflow-y-auto flex-1 text-xs space-y-4 font-mono">
-
                             <div className="text-center space-y-1">
-
                                 {shopInfo.logo && <img src={shopInfo.logo} alt="Logo" className="h-10 mx-auto object-contain mb-1" />}
-
                                 <h2 className="text-base font-black text-slate-900">{shopInfo.name}</h2>
-
+                                <div className={`inline-block px-3 py-1 rounded-full text-xs font-black tracking-wider uppercase my-1 border ${
+                                    isWaitingParts 
+                                        ? 'bg-orange-100 text-orange-900 border-orange-300' 
+                                        : isCompleted 
+                                            ? 'bg-emerald-100 text-emerald-900 border-emerald-300' 
+                                            : 'bg-blue-100 text-blue-900 border-blue-300'
+                                }`}>
+                                    {docTitle}
+                                </div>
                                 <p className="text-slate-500 text-[11px]">{shopInfo.address}</p>
-
                                 <p className="text-slate-500 text-[11px]">TEL: {shopInfo.phone}</p>
-
                             </div>
-
-
 
                             <div className="border-t border-b border-dashed border-slate-300 py-2 space-y-1">
-
                                 <div className="flex justify-between font-bold text-slate-800">
-
-                                    <span>工單號: #{selectedRecord.id?.slice(-6) || '8888'}</span>
-
+                                    <span>單據號: #{String(selectedRecord?.id || '8888').slice(-6)}</span>
                                     <span>{formatDate(selectedRecord.date)}</span>
-
                                 </div>
-
                                 <div className="flex justify-between">
-
                                     <span>車牌: <strong className="text-sm">{selectedRecord.plate}</strong></span>
-
                                     <span>車主: {selectedRecord.name || '車主'}</span>
-
                                 </div>
-
                                 <div className="flex justify-between text-slate-500 text-[11px]">
-
                                     <span>車種: {selectedRecord.bikeModel || '-'}</span>
-
                                     <span>里程: {selectedRecord.mileage || '-'} km</span>
-
                                 </div>
-
-                            </div>
-
-
-
-                            <div className="space-y-1.5">
-
-                                <div className="flex justify-between font-bold text-slate-700 border-b border-slate-200 pb-1">
-
-                                    <span>品項名稱</span>
-
-                                    <span>數量</span>
-
-                                </div>
-
-                                {items.map((it, idx) => (
-
-                                    <div key={idx} className="flex justify-between text-slate-800">
-
-                                        <span className="truncate pr-2">• {it.name}</span>
-
-                                        <span>x{it.qty || 1}</span>
-
+                                {selectedRecord.phone && (
+                                    <div className="text-slate-500 text-[11px]">
+                                        <span>電話: {selectedRecord.phone}</span>
                                     </div>
-
-                                ))}
-
+                                )}
                             </div>
 
+                            {/* 等待備料專屬預計到貨提示區塊 */}
+                            {isWaitingParts && (
+                                <div className="bg-orange-50 p-2.5 rounded-xl border border-orange-200 text-orange-950 space-y-1">
+                                    <div className="flex justify-between items-center font-bold">
+                                        <span>📦 零件備料狀態：等待到貨中</span>
+                                        <span className="font-mono text-xs text-orange-800 bg-white px-2 py-0.5 rounded border border-orange-200">
+                                            預計到貨: {selectedRecord.partsDueDate || '未指定日期'}
+                                        </span>
+                                    </div>
+                                    <div className="text-[10px] text-orange-800/80">
+                                        本單據用於供料廠商核對叫料、庫存備料確認與現場技師備料盤點查驗。
+                                    </div>
+                                </div>
+                            )}
 
+                            {/* 品項清單：清楚顯示待備料品項名稱、數量、核銷進度 */}
+                            <div className="space-y-1.5">
+                                <div className="flex justify-between font-bold text-slate-700 border-b border-slate-200 pb-1">
+                                    <span className="w-8">項次</span>
+                                    <span className="flex-1">{isWaitingParts ? '待備料品項名稱' : '品項名稱'}</span>
+                                    <span className="w-12 text-center">數量</span>
+                                    {isWaitingParts && <span className="w-16 text-center">進度</span>}
+                                    <span className="w-16 text-right">費用</span>
+                                </div>
+                                {items.map((it, idx) => {
+                                    const st = getItemStatus(it);
+                                    const isFulfilled = st === 'fulfilled';
+                                    const isProcessing = st === 'processing';
+                                    const autoSub = (evaluateMathExpression(it.partsPrice, 0) + (evaluateMathExpression(it.laborHours, 0) * 800)) * Number(it.qty || 1);
+                                    const sub = it.subtotal !== undefined && it.subtotal !== null && it.subtotal !== '' ? evaluateMathExpression(it.subtotal, 0) : autoSub;
+
+                                    return (
+                                        <div key={idx} className="flex items-center justify-between text-slate-800 py-1 border-b border-dashed border-slate-100">
+                                            <span className="w-8 text-slate-400 font-mono">{idx + 1}</span>
+                                            <span className="flex-1 truncate font-bold pr-2">{it.name}</span>
+                                            <span className="w-12 text-center font-mono">x{it.qty || 1}</span>
+                                            {isWaitingParts && (
+                                                <span className="w-16 text-center text-[10px]">
+                                                    {isFulfilled ? (
+                                                        <span className="bg-emerald-100 text-emerald-800 px-1 py-0.2 rounded font-bold">已到貨</span>
+                                                    ) : isProcessing ? (
+                                                        <span className="bg-blue-100 text-blue-800 px-1 py-0.2 rounded font-bold">處理中</span>
+                                                    ) : (
+                                                        <span className="bg-orange-100 text-orange-800 px-1 py-0.2 rounded font-bold">待料中</span>
+                                                    )}
+                                                </span>
+                                            )}
+                                            <span className="w-16 text-right font-mono">${Math.round(sub).toLocaleString()}</span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
 
                             <div className="border-t border-dashed border-slate-300 pt-2 space-y-1 text-right">
-
                                 <div className="text-base font-black text-slate-900">
-
-                                    總額: ${Number(selectedRecord.total || 0).toLocaleString()}
-
+                                    預估總額: ${Number(selectedRecord.total || 0).toLocaleString()}
                                 </div>
-
                                 {selectedRecord.hasDeposit && (
-
                                     <div className="text-[11px] text-slate-500">
-
                                         已付定金: ${Number(selectedRecord.depositAmount || 0).toLocaleString()} ｜ 結算尾款: ${Number(selectedRecord.remainingBalance || 0).toLocaleString()}
-
                                     </div>
-
                                 )}
-
                             </div>
 
-
-
-                            <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 space-y-1 text-[11px]">
-
-                                <span className="font-bold text-slate-700 block">車況四大安全健檢診斷：</span>
-
-                                <div className="grid grid-cols-2 gap-1 text-slate-600">
-
-                                    <span>輪胎胎紋: <strong>{insp.tires || '良好'}</strong></span>
-
-                                    <span>煞車來令: <strong>{insp.brakes || '良好'}</strong></span>
-
-                                    <span>皮帶傳動: <strong>{insp.belt || '良好'}</strong></span>
-
-                                    <span>電瓶電壓: <strong>{insp.battery || '12.8V'}</strong></span>
-
+                            {/* 備料簽核 vs 四大車況健檢 */}
+                            {isWaitingParts ? (
+                                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2 mt-2">
+                                    <div className="flex justify-between text-slate-600 text-[11px]">
+                                        <span>叫料備料確認：__________________</span>
+                                        <span>領料技師：__________________</span>
+                                    </div>
+                                    <div className="text-[10px] text-slate-400">
+                                        說明：零件全數到齊並核銷後，請點選看板「零件到齊 ➔ 轉維修中」進入施工階段。
+                                    </div>
                                 </div>
+                            ) : (
+                                <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 space-y-1 text-[11px]">
+                                    <span className="font-bold text-slate-700 block">車況四大安全健檢診斷：</span>
+                                    <div className="grid grid-cols-2 gap-1 text-slate-600">
+                                        <span>輪胎胎紋: <strong>{insp.tires || '良好'}</strong></span>
+                                        <span>煞車來令: <strong>{insp.brakes || '良好'}</strong></span>
+                                        <span>皮帶傳動: <strong>{insp.belt || '良好'}</strong></span>
+                                        <span>電瓶電壓: <strong>{insp.battery || '12.8V'}</strong></span>
+                                    </div>
+                                </div>
+                            )}
 
-                            </div>
-
-
+                            {selectedRecord.notes && (
+                                <div className="bg-yellow-50/70 p-2 rounded-lg border border-yellow-200/80 text-[11px] text-slate-700">
+                                    <strong className="text-yellow-900 block mb-0.5">工單備註事項：</strong>
+                                    {selectedRecord.notes}
+                                </div>
+                            )}
 
                             <p className="text-center text-[10px] text-slate-400 pt-2">{shopInfo.note}</p>
-
                         </div>
-
                     </div>
-
                 </div>
-
             );
-
         };
-
-
 
         const App = () => {
 
@@ -10508,34 +10343,19 @@ function handleSyncWorkforcePerformance(data) {
                 <div className="flex h-screen w-screen overflow-hidden bg-slate-100 select-none">
 
                     <Sidebar 
-
                         view={view}
-
                         handleNavClick={handleNavClick}
-
                         isCloudEnabled={isCloudEnabled}
-
                         shopInfo={shopInfo}
-
                         inProgressCount={inProgressCount}
-
                         waitingPartsCount={waitingPartsCount}
-
                         fetchCloudData={fetchCloudData}
-
                         isLoading={isLoading}
-
                         isUnlocked={isUnlocked}
-
-                        lockNow={() => setIsUnlocked(false)}
-
+                        lockNow={lockNow}
                         isInitialSyncDone={isInitialSyncDone}
-
                         recordsCount={records.length}
-
                     />
-
-
 
                     <div className="flex-1 flex flex-col h-full overflow-hidden">
 
