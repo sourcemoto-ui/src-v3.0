@@ -1380,58 +1380,70 @@
                 }
 
             }, [draftOrder.plate, customers, records]);
-
-
-
-            useEffect(() => { 
-
-                if (draftOrder.mileage && !isNaN(Number(draftOrder.mileage))) {
-
-                    const nextKm = Number(draftOrder.mileage) + 2500;
-
-                    updateDraft('nextMileage', nextKm);
-
-
-
-                    const daily = (predictedDailyKm && predictedDailyKm > 5 && predictedDailyKm < 200) ? predictedDailyKm : 25;
-
-                    const daysNeeded = Math.round(2500 / daily);
-
-                    const futureDate = new Date();
-
-                    futureDate.setDate(futureDate.getDate() + daysNeeded);
-
-                    updateDraft('nextServiceDate', getLocalDateString(futureDate));
-
-                }
-
-            }, [draftOrder.mileage, predictedDailyKm]);
-
-
-
-            const handlePhotoChange = async (e, photoKey) => {
-
-                const file = e.target.files[0];
-
-                if (file) { 
-
-                    const compressed = await compressImage(file); 
-
-                    updateDraft(photoKey, compressed); 
-
-                }
-
-            };
-
-
-
-            const addItem = () => { updateDraft('items', [...draftOrder.items, { id: Date.now(), name: '', partsPrice: 0, laborHours: 0, qty: 1, itemStatus: 'pending', fulfilled: false, mechanics: {}, isBasicMaintenance: true }]); };
+            const addItem = () => { updateDraft('items', [...draftOrder.items, { id: Date.now(), name: '', partsPrice: 0, laborHours: 0, qty: 1, subtotal: 0, itemStatus: 'pending', fulfilled: false, mechanics: {}, isBasicMaintenance: true }]); };
 
             const removeItem = (id) => { if (draftOrder.items.length > 1) updateDraft('items', draftOrder.items.filter(i => i.id !== id)); };
 
-            const updateItem = (id, field, value) => { updateDraft('items', draftOrder.items.map(i => i.id === id ? { ...i, [field]: value } : i)); };
+            const updateItem = (id, field, value) => {
+                setDraftOrder(prev => ({
+                    ...prev,
+                    items: prev.items.map(i => {
+                        if (i.id === id) {
+                            const qty = Math.max(1, Number(field === 'qty' ? value : (i.qty || 1)));
+                            const laborHoursNum = evaluateMathExpression(field === 'laborHours' ? value : i.laborHours, 0);
+                            const partsPriceNum = evaluateMathExpression(field === 'partsPrice' ? value : i.partsPrice, 0);
 
+                            // 手動編輯小計輸入框時，即時記錄輸入字串
+                            if (field === 'subtotal') {
+                                return { ...i, subtotal: value };
+                            }
 
+                            // 當技師修改零件費、工時或數量時：小計 = (零件費 + 工時工資) * 數量
+                            if (field === 'partsPrice' || field === 'laborHours' || field === 'qty') {
+                                const newAutoSubtotal = Math.round((partsPriceNum + (laborHoursNum * hourlyRate)) * qty);
+                                return {
+                                    ...i,
+                                    [field]: value,
+                                    subtotal: newAutoSubtotal
+                                };
+                            }
+
+                            return { ...i, [field]: value };
+                        }
+                        return i;
+                    })
+                }));
+            };
+
+            // 手動更改小計失焦 (onBlur) 或 Enter 時：在工時不變的情況下，自動由小計扣除工資反推算出零件費
+            const handleSubtotalBlur = (item, rawVal) => {
+                const valStr = String(rawVal !== undefined && rawVal !== null ? rawVal : '').trim();
+                const qty = Math.max(1, Number(item.qty || 1));
+                const laborHoursNum = evaluateMathExpression(item.laborHours, 0);
+                const laborFeePerUnit = laborHoursNum * hourlyRate;
+                const autoSub = Math.round((evaluateMathExpression(item.partsPrice, 0) + laborFeePerUnit) * qty);
+
+                if (valStr === '') {
+                    // 若清空小計，還原為標準公式計算
+                    updateDraft('items', draftOrder.items.map(i => i.id === item.id ? { ...i, subtotal: autoSub } : i));
+                    return;
+                }
+
+                const evaluatedSubtotal = evaluateMathExpression(valStr, autoSub);
+                // 小計 = 工時工資 + 零件費。在工時不變的情況下，扣除工時工資得出單件零件費
+                const deducedPartsPrice = Math.max(0, Math.round((evaluatedSubtotal / qty) - laborFeePerUnit));
+
+                updateDraft('items', draftOrder.items.map(i => {
+                    if (i.id === item.id) {
+                        return {
+                            ...i,
+                            subtotal: evaluatedSubtotal,
+                            partsPrice: deducedPartsPrice
+                        };
+                    }
+                    return i;
+                }));
+            };
 
             const toggleItemMechanic = (id, staffName) => {
 
@@ -1519,7 +1531,12 @@
 
             const commissionRate = Number(shopInfo.referrerCommissionRate !== undefined ? shopInfo.referrerCommissionRate : 20);
 
-            const getItemTotal = (item) => (evaluateMathExpression(item.partsPrice, 0) + (evaluateMathExpression(item.laborHours, 0) * hourlyRate)) * Number(item.qty || 1);
+            const getItemTotal = (item) => {
+                if (item.subtotal !== undefined && item.subtotal !== null && item.subtotal !== '') {
+                    return evaluateMathExpression(item.subtotal, 0);
+                }
+                return (evaluateMathExpression(item.partsPrice, 0) + (evaluateMathExpression(item.laborHours, 0) * hourlyRate)) * Number(item.qty || 1);
+            };
 
             const total = draftOrder.items.reduce((sum, item) => sum + getItemTotal(item), 0);
 
@@ -1533,7 +1550,12 @@
 
                 if (isBasic) return sum;
 
-                return sum + (evaluateMathExpression(item.partsPrice, 0) * Number(item.qty || 1));
+                const pFee = evaluateMathExpression(item.partsPrice, 0);
+                if (pFee > 0) return sum + (pFee * Number(item.qty || 1));
+                if (item.subtotal !== undefined && item.subtotal !== null && item.subtotal !== '' && Number(item.laborHours || 0) === 0) {
+                    return sum + evaluateMathExpression(item.subtotal, 0);
+                }
+                return sum + pFee;
 
             }, 0);
 
@@ -1566,6 +1588,8 @@
                     partsPrice: evaluateMathExpression(it.partsPrice, 0),
 
                     laborHours: evaluateMathExpression(it.laborHours, 0),
+
+                    subtotal: it.subtotal !== undefined && it.subtotal !== null && it.subtotal !== '' ? evaluateMathExpression(it.subtotal, 0) : undefined,
 
                     isBasicMaintenance: it.isBasicMaintenance !== undefined ? it.isBasicMaintenance : true
 
@@ -1625,21 +1649,25 @@
 
                         const emptyIndex = prev.items.findIndex(i => i.name === '');
 
-                        const pVal = service.partsPrice !== undefined ? service.partsPrice : service.price || 0;
+                        const pVal = Number(service.partsPrice !== undefined ? service.partsPrice : service.price || 0);
+
+                        const lVal = Number(service.laborHours || 0);
 
                         const isBasic = service.isBasicMaintenance !== undefined ? service.isBasicMaintenance : true;
+
+                        const sVal = Math.round((pVal + lVal * hourlyRate) * 1);
 
                         if (emptyIndex !== -1) {
 
                             const newItems = [...prev.items];
 
-                            newItems[emptyIndex] = { ...newItems[emptyIndex], name: service.name, partsPrice: pVal, laborHours: service.laborHours || 0, itemStatus: 'pending', fulfilled: false, isBasicMaintenance: isBasic };
+                            newItems[emptyIndex] = { ...newItems[emptyIndex], name: service.name, partsPrice: pVal, laborHours: lVal, subtotal: sVal, itemStatus: 'pending', fulfilled: false, isBasicMaintenance: isBasic };
 
                             return { ...prev, items: newItems };
 
                         } else {
 
-                            return { ...prev, items: [...prev.items, { id: Date.now(), name: service.name, partsPrice: pVal, laborHours: service.laborHours || 0, qty: 1, itemStatus: 'pending', fulfilled: false, mechanics: {}, isBasicMaintenance: isBasic }] };
+                            return { ...prev, items: [...prev.items, { id: Date.now(), name: service.name, partsPrice: pVal, laborHours: lVal, qty: 1, subtotal: sVal, itemStatus: 'pending', fulfilled: false, mechanics: {}, isBasicMaintenance: isBasic }] };
 
                         }
 
@@ -2267,7 +2295,8 @@
 
                                         const isProcessing = currentStatus === 'processing';
 
-                                        
+                                        const autoSubtotal = (evaluateMathExpression(item.partsPrice, 0) + (evaluateMathExpression(item.laborHours, 0) * hourlyRate)) * Number(item.qty || 1);
+                                        const hasCustomSubtotal = item.subtotal !== undefined && item.subtotal !== null && item.subtotal !== '';
 
                                         const cycleDraftItemStatus = () => {
 
@@ -2401,17 +2430,55 @@
 
                                                     <div className="w-14">
 
-                                                        <label className="text-[10px] text-slate-500 mb-0.5 block font-bold text-center">數量</label>
+                                                        <label className="text-[10px] text-slate-500 mb-0.5 block text-center">數量</label>
 
                                                         <input type="number" min="1" value={item.qty} onChange={(e) => updateItem(item.id, 'qty', Number(e.target.value))} className="w-full p-1.5 border border-slate-300 rounded-lg text-center bg-white text-xs font-bold outline-none focus:border-blue-400" />
 
                                                     </div>
 
-                                                    <div className="w-24 text-right">
+                                                    <div className="w-28 min-w-[105px]">
 
-                                                        <span className="text-[10px] text-slate-400 block">小計</span>
+                                                        <label className="text-[10px] text-slate-500 mb-0.5 block font-bold text-right">小計 ($)</label>
 
-                                                        <span className="text-sm font-black text-blue-700 font-mono">${Math.round(getItemTotal(item)).toLocaleString()}</span>
+                                                        <input 
+
+                                                            type="text" 
+
+                                                            value={item.subtotal !== undefined ? item.subtotal : Math.round(autoSubtotal)} 
+
+                                                            onChange={(e) => updateItem(item.id, 'subtotal', e.target.value)} 
+
+                                                            onBlur={(e) => handleSubtotalBlur(item, e.target.value)}
+
+                                                            onKeyDown={(e) => { 
+
+                                                                if (e.key === 'Enter') {
+
+                                                                    handleSubtotalBlur(item, e.target.value);
+
+                                                                } 
+
+                                                            }}
+
+                                                            placeholder="小計"
+
+                                                            title="小計 = 工時工資 + 零件費。手動修改小計時，在工時不變原則下自動扣除工資並更新零件費"
+
+                                                            className={`w-full p-1.5 border rounded-lg text-right text-xs font-black outline-none font-mono transition-all ${
+
+                                                                hasCustomSubtotal
+
+                                                                    ? 'bg-blue-50/80 border-blue-400 text-blue-800 focus:border-blue-500' 
+
+                                                                    : 'bg-white border-slate-300 text-blue-700 focus:border-blue-400'
+
+                                                            }`}
+
+                                                        />
+
+                                                        <div className="text-[9px] text-slate-400 font-mono text-right truncate mt-0.5" title={`單件料 $${evaluateMathExpression(item.partsPrice, 0)} + 單件工 $${Math.round(evaluateMathExpression(item.laborHours, 0) * hourlyRate)}`}>
+                                                            料${Math.round(evaluateMathExpression(item.partsPrice, 0) * Number(item.qty || 1))} + 工${Math.round(evaluateMathExpression(item.laborHours, 0) * hourlyRate * Number(item.qty || 1))}
+                                                        </div>
 
                                                     </div>
 
@@ -3609,7 +3676,7 @@
 
                                                             <span className="truncate">• {it.name} x{it.qty || 1}</span>
 
-                                                            <span className="font-mono text-slate-500">${Math.round(evaluateMathExpression(it.partsPrice, 0) + (evaluateMathExpression(it.laborHours, 0) * 800)).toLocaleString()}</span>
+                                                            <span className="font-mono text-slate-500">${Math.round(it.subtotal !== undefined && it.subtotal !== null && it.subtotal !== '' ? evaluateMathExpression(it.subtotal, 0) : ((evaluateMathExpression(it.partsPrice, 0) + (evaluateMathExpression(it.laborHours, 0) * 800)) * Number(it.qty || 1))).toLocaleString()}</span>
 
                                                         </div>
 
