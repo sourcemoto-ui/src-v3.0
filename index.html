@@ -9356,111 +9356,58 @@ function handleSyncWorkforcePerformance(data) {
 
 
                     {/* 分頁 6: 資料庫備份與檔案還原 */}
-
                     {activeTab === 'backup' && (
-
                         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-5 animate-in fade-in">
-
                             <div className="border-b border-slate-100 pb-3">
-
                                 <h3 className="text-sm font-black text-slate-800 flex items-center gap-2">
-
                                     <DownloadSimple className="text-blue-600" size={18}/> 資料庫實體備份下載與上傳還原
-
                                 </h3>
-
                                 <p className="text-slate-400 text-xs mt-0.5">提供店內更換電腦、平板或做月底離線封存使用</p>
-
                             </div>
-
-
 
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-
                                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3 flex flex-col justify-between">
-
                                     <div>
-
                                         <span className="font-black text-slate-800 text-xs block">① 下載完整備份檔案 (.json)</span>
-
                                         <span className="text-[11px] text-slate-500 mt-1 block leading-relaxed">
-
                                             完整打包店鋪設定、工單紀錄 ({records.length}筆)、客戶車籍 ({customers.length}位) 與零件庫存名冊。
-
                                         </span>
-
                                     </div>
-
                                     <button 
-
                                         type="button" 
-
                                         onClick={handleBackupJson}
-
                                         className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl shadow-xs flex items-center justify-center gap-1.5"
-
                                     >
-
                                         <DownloadSimple size={15}/> 下載資料庫備份檔 (.json)
-
                                     </button>
-
                                 </div>
-
-
 
                                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3 flex flex-col justify-between">
-
                                     <div>
-
                                         <span className="font-black text-slate-800 text-xs block">② 上傳備份檔還原資料庫 (.json)</span>
-
                                         <span className="text-[11px] text-slate-500 mt-1 block leading-relaxed">
-
                                             若在新電腦或瀏覽器快取被清空時，可選取先前下載的 .json 備份檔，3 秒無痛完整還原。
-
                                         </span>
-
                                     </div>
-
                                     <div>
-
                                         <button 
-
                                             type="button" 
-
                                             onClick={() => restoreFileInputRef.current.click()}
-
                                             className="w-full py-2.5 bg-white border-2 border-dashed border-blue-400 text-blue-700 hover:bg-blue-50 font-bold rounded-xl shadow-xs flex items-center justify-center gap-1.5"
-
                                         >
-
                                             <UploadSimple size={15}/> 選取檔案進行還原 (.json)
-
                                         </button>
-
                                         <input 
-
                                             ref={restoreFileInputRef} 
-
                                             type="file" 
-
                                             accept=".json,application/json" 
-
                                             className="hidden" 
-
                                             onChange={handleRestoreJson} 
-
                                         />
-
                                     </div>
-
                                 </div>
-
                             </div>
-
                         </div>
-
                     )}
 
                 </div>
@@ -9469,9 +9416,7 @@ function handleSyncWorkforcePerformance(data) {
 
         };
 
-
-
-        const ReceiptModal = ({ showReceiptModal, setShowReceiptModal, selectedRecord, shopInfo }) => {
+        const ReceiptModal = ({ showReceiptModal, setShowReceiptModal, selectedRecord, shopInfo, gasUrl, showAlert }) => {
             if (!showReceiptModal || !selectedRecord) return null;
 
             const printReceipt = () => window.print();
@@ -9489,32 +9434,91 @@ function handleSyncWorkforcePerformance(data) {
             const items = normalizeItems(selectedRecord.items);
             const insp = selectedRecord.inspection || INITIAL_INSPECTION;
 
-            const shareToLine = () => {
-                if (isWaitingParts) {
-                    let txt = `【${shopInfo.name || '車行'}】零件採購備料品項清單\n`;
-                    txt += `車牌號碼: ${selectedRecord.plate}\n`;
-                    txt += `車主姓名: ${selectedRecord.name || '車主'} ${selectedRecord.phone ? '(' + selectedRecord.phone + ')' : ''}\n`;
-                    txt += `車種型號: ${selectedRecord.bikeModel || '-'}\n`;
-                    txt += `預計到貨日: ${selectedRecord.partsDueDate || '未指定'}\n`;
-                    txt += `--------------------------\n`;
-                    txt += `【待備料品項清單】\n`;
-                    items.forEach((it, idx) => {
-                        const st = getItemStatus(it);
-                        const tag = st === 'fulfilled' ? '✅已到貨' : st === 'processing' ? '🔄處理中' : '⬜待料中';
-                        txt += `${idx + 1}. ${it.name} x${it.qty || 1} [${tag}]\n`;
-                    });
-                    txt += `--------------------------\n`;
-                    txt += `預估總額: $${Number(selectedRecord.total || 0).toLocaleString()} 元\n`;
-                    if (selectedRecord.hasDeposit) {
-                        txt += `已收定金: $${Number(selectedRecord.depositAmount || 0).toLocaleString()} ｜ 結清尾款: $${Number(selectedRecord.remainingBalance || 0).toLocaleString()}\n`;
-                    }
-                    if (selectedRecord.notes) txt += `備註: ${selectedRecord.notes}\n`;
-                    txt += `門市電話: ${shopInfo.phone || ''}`;
-                    window.open(`https://line.me/R/msg/text/?${encodeURIComponent(txt)}`, '_blank');
+            // 備料品項 Email 發送狀態
+            const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
+            const [emailRecipient, setEmailRecipient] = useState('');
+            const [emailSubject, setEmailSubject] = useState('');
+            const [emailBody, setEmailBody] = useState('');
+            const [isSendingEmail, setIsSendingEmail] = useState(false);
+
+            const openEmailModal = () => {
+                const recipient = selectedRecord.email || '';
+                const plate = selectedRecord.plate || '';
+                const sName = shopInfo?.name || 'Source Moto Custom';
+                const subj = `【${sName}】零件採購備料品項明細單 - 車牌: ${plate}`;
+
+                let txt = `親愛的車主 / 夥伴 您好：\n\n`;
+                txt += `感謝您！以下為【${sName}】為您整理之愛車【${selectedRecord.bikeModel || ''} (${plate})】的零件採購備料品項明細清單與進度存查紀錄：\n\n`;
+                txt += `■ 單據編號：#${String(selectedRecord?.id || '8888').slice(-6)}\n`;
+                txt += `■ 開單日期：${formatDate(selectedRecord.date)}\n`;
+                txt += `■ 車牌號碼：${plate}\n`;
+                txt += `■ 車主姓名：${selectedRecord.name || '車主'}\n`;
+                txt += `■ 車種型號：${selectedRecord.bikeModel || '-'}\n`;
+                txt += `■ 預計備料到貨日：${selectedRecord.partsDueDate || '未指定日期'}\n\n`;
+                txt += `【待備料品項明細清單】\n`;
+                items.forEach((it, idx) => {
+                    const st = getItemStatus(it);
+                    const tag = st === 'fulfilled' ? '✅已到貨' : st === 'processing' ? '🔄處理中' : '⬜待料中';
+                    const autoSub = (evaluateMathExpression(it.partsPrice, 0) + (evaluateMathExpression(it.laborHours, 0) * 800)) * Number(it.qty || 1);
+                    const sub = it.subtotal !== undefined && it.subtotal !== null && it.subtotal !== '' ? evaluateMathExpression(it.subtotal, 0) : autoSub;
+                    txt += `${idx + 1}. ${it.name} x${it.qty || 1} [${tag}] - $${Math.round(sub).toLocaleString()} 元\n`;
+                });
+                txt += `----------------------------------------\n`;
+                txt += `預估總額：$${Number(selectedRecord.total || 0).toLocaleString()} 元\n`;
+                if (selectedRecord.hasDeposit) {
+                    txt += `已付定金：$${Number(selectedRecord.depositAmount || 0).toLocaleString()} 元\n`;
+                    txt += `結算尾款：$${Number(selectedRecord.remainingBalance || 0).toLocaleString()} 元\n`;
+                }
+                if (selectedRecord.notes) {
+                    txt += `備註說明：${selectedRecord.notes}\n`;
+                }
+                txt += `\n門市名稱：${shopInfo?.name || 'Source Moto Custom'}\n`;
+                txt += `門市電話：${shopInfo?.phone || ''}\n`;
+                txt += `門市地址：${shopInfo?.address || ''}\n\n`;
+                txt += `※ 本信件由系統發送作為備料進度存查留紀錄，零件全數到貨後將主動通知您回廠施工，祝您騎乘平安！`;
+
+                setEmailRecipient(recipient);
+                setEmailSubject(subj);
+                setEmailBody(txt);
+                setIsEmailModalOpen(true);
+            };
+
+            const handleSendPartsEmail = async () => {
+                const targetEmail = (emailRecipient || '').trim();
+                if (!targetEmail || targetEmail.indexOf('@') === -1) {
+                    if (showAlert) showAlert('請輸入有效正確的電子信箱 (Email)！');
+                    return;
+                }
+                if (!gasUrl) {
+                    if (showAlert) showAlert('尚未設定 Google Apps Script 同步網址，無法發送 Email！');
                     return;
                 }
 
-                let txt = `【${shopInfo.name || '車行'}】${docTitle}\n`;
+                setIsSendingEmail(true);
+                try {
+                    const res = await safeFetchGAS(gasUrl, {
+                        action: 'send_maintenance_reminder',
+                        email: targetEmail,
+                        subject: emailSubject,
+                        customText: emailBody,
+                        shopInfo
+                    }, 20000);
+
+                    if (res.ok && res.data && (res.data.status === 'success' || res.data.ok)) {
+                        setIsEmailModalOpen(false);
+                        if (showAlert) showAlert(`✅ 備料品項明細紀錄已成功寄送至：\n${targetEmail}！`);
+                    } else {
+                        if (showAlert) showAlert(`❌ 寄送失敗：${res.error || res.data?.message || '雲端伺服器回應異常'}`);
+                    }
+                } catch (err) {
+                    if (showAlert) showAlert(`❌ 寄送時發生錯誤：${err.message}`);
+                } finally {
+                    setIsSendingEmail(false);
+                }
+            };
+
+            const shareToLine = () => {
+                let txt = `【${shopInfo?.name || '車行'}】${docTitle}\n`;
                 txt += `車牌號碼: ${selectedRecord.plate}\n`;
                 txt += `日期: ${formatDate(selectedRecord.date)}\n`;
                 txt += `--------------------------\n`;
@@ -9536,10 +9540,25 @@ function handleSyncWorkforcePerformance(data) {
                         <div className="bg-slate-900 text-white p-3.5 flex justify-between items-center no-print">
                             <span className="font-bold text-xs">{docTitle}預覽</span>
                             <div className="flex gap-1.5">
-                                <button onClick={shareToLine} className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 rounded-lg text-xs font-bold flex items-center gap-1">
-                                    <ShareNetwork size={13}/> LINE
-                                </button>
-                                <button onClick={printReceipt} className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 rounded-lg text-xs font-bold flex items-center gap-1">
+                                {isWaitingParts ? (
+                                    <button 
+                                        type="button" 
+                                        onClick={openEmailModal} 
+                                        className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition-colors"
+                                        title="寄送備料品項明細 Email 給對方留存紀錄"
+                                    >
+                                        <Mail size={13}/> 寄送 Email
+                                    </button>
+                                ) : (
+                                    <button 
+                                        type="button" 
+                                        onClick={shareToLine} 
+                                        className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1"
+                                    >
+                                        <ShareNetwork size={13}/> LINE
+                                    </button>
+                                )}
+                                <button onClick={printReceipt} className="px-2.5 py-1 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs font-bold flex items-center gap-1">
                                     <Printer size={13}/> 列印
                                 </button>
                                 <button onClick={() => setShowReceiptModal(false)} className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs font-bold">
@@ -9550,8 +9569,8 @@ function handleSyncWorkforcePerformance(data) {
 
                         <div className="p-6 overflow-y-auto flex-1 text-xs space-y-4 font-mono">
                             <div className="text-center space-y-1">
-                                {shopInfo.logo && <img src={shopInfo.logo} alt="Logo" className="h-10 mx-auto object-contain mb-1" />}
-                                <h2 className="text-base font-black text-slate-900">{shopInfo.name}</h2>
+                                {shopInfo?.logo && <img src={shopInfo.logo} alt="Logo" className="h-10 mx-auto object-contain mb-1" />}
+                                <h2 className="text-base font-black text-slate-900">{shopInfo?.name}</h2>
                                 <div className={`inline-block px-3 py-1 rounded-full text-xs font-black tracking-wider uppercase my-1 border ${
                                     isWaitingParts 
                                         ? 'bg-orange-100 text-orange-900 border-orange-300' 
@@ -9561,8 +9580,8 @@ function handleSyncWorkforcePerformance(data) {
                                 }`}>
                                     {docTitle}
                                 </div>
-                                <p className="text-slate-500 text-[11px]">{shopInfo.address}</p>
-                                <p className="text-slate-500 text-[11px]">TEL: {shopInfo.phone}</p>
+                                <p className="text-slate-500 text-[11px]">{shopInfo?.address}</p>
+                                <p className="text-slate-500 text-[11px]">TEL: {shopInfo?.phone}</p>
                             </div>
 
                             <div className="border-t border-b border-dashed border-slate-300 py-2 space-y-1">
@@ -9679,9 +9698,86 @@ function handleSyncWorkforcePerformance(data) {
                                 </div>
                             )}
 
-                            <p className="text-center text-[10px] text-slate-400 pt-2">{shopInfo.note}</p>
+                            <p className="text-center text-[10px] text-slate-400 pt-2">{shopInfo?.note}</p>
                         </div>
                     </div>
+
+                    {/* 備料品項明細專屬 Email 寄送與預覽彈窗 */}
+                    {isEmailModalOpen && (
+                        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center z-[10000] p-4">
+                            <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-in zoom-in-95">
+                                <div className="bg-slate-900 text-white p-4 flex justify-between items-center">
+                                    <div className="flex items-center gap-2">
+                                        <Mail size={18} className="text-blue-400"/>
+                                        <h3 className="font-bold text-sm">寄送零件備料品項明細紀錄 (Email)</h3>
+                                    </div>
+                                    <button 
+                                        type="button" 
+                                        onClick={() => setIsEmailModalOpen(false)} 
+                                        className="p-1 hover:bg-slate-800 rounded-lg text-slate-300"
+                                    >
+                                        <X size={18}/>
+                                    </button>
+                                </div>
+
+                                <div className="p-4 overflow-y-auto flex-1 space-y-3 text-xs">
+                                    <div>
+                                        <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                                            收件電子信箱 (Email) *
+                                        </label>
+                                        <input 
+                                            type="email" 
+                                            value={emailRecipient} 
+                                            onChange={e => setEmailRecipient(e.target.value)} 
+                                            placeholder="請輸入車主或對方的收件 Email，例如: customer@example.com" 
+                                            className="w-full p-2.5 border border-blue-300 rounded-xl font-mono text-xs outline-none focus:border-blue-500 bg-yellow-50/70 font-bold" 
+                                            required 
+                                        />
+                                        <span className="text-[10px] text-slate-400 mt-0.5 block">系統已自動帶入客戶檔案登記之信箱，亦可在此隨時編輯或更改</span>
+                                    </div>
+
+                                    <div>
+                                        <label className="text-[11px] font-bold text-slate-700 block mb-1">信件主旨</label>
+                                        <input 
+                                            type="text" 
+                                            value={emailSubject} 
+                                            onChange={e => setEmailSubject(e.target.value)} 
+                                            className="w-full p-2 border border-slate-300 rounded-xl text-xs font-bold outline-none focus:border-blue-500" 
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="text-[11px] font-bold text-slate-700 block mb-1">信件內容預覽 (可直接修訂或增補說明)</label>
+                                        <textarea 
+                                            rows="9" 
+                                            value={emailBody} 
+                                            onChange={e => setEmailBody(e.target.value)} 
+                                            className="w-full p-2.5 border border-slate-300 rounded-xl text-xs leading-relaxed outline-none focus:border-blue-500 font-mono resize-none bg-slate-50" 
+                                        ></textarea>
+                                    </div>
+                                </div>
+
+                                <div className="p-3.5 bg-slate-50 border-t border-slate-200 flex justify-end gap-2 text-xs">
+                                    <button 
+                                        type="button" 
+                                        onClick={() => setIsEmailModalOpen(false)} 
+                                        className="px-4 py-2 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-xl font-bold transition-colors"
+                                    >
+                                        取消
+                                    </button>
+                                    <button 
+                                        type="button" 
+                                        onClick={handleSendPartsEmail} 
+                                        disabled={isSendingEmail}
+                                        className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold flex items-center gap-1.5 shadow-xs transition-all active:scale-95 disabled:opacity-50"
+                                    >
+                                        {isSendingEmail ? <RefreshCw size={14} className="animate-spin" /> : <Mail size={14} />}
+                                        <span>{isSendingEmail ? '正在寄出信件...' : '確認寄送明細 Email'}</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             );
         };
@@ -10600,21 +10696,15 @@ function handleSyncWorkforcePerformance(data) {
 
 
                     <ReceiptModal 
-
                         showReceiptModal={showReceiptModal}
-
                         setShowReceiptModal={setShowReceiptModal}
-
                         selectedRecord={selectedRecord}
-
                         shopInfo={shopInfo}
-
+                        gasUrl={gasUrl}
+                        showAlert={showAlert}
                     />
 
-
-
                     <PinAuthModal 
-
                         isOpen={isPinModalOpen}
 
                         onClose={() => { 
