@@ -9900,38 +9900,44 @@ function handleSyncWorkforcePerformance(data) {
 
 
 
-            const fetchCloudData = async (targetUrl = gasUrl) => {
+            // 多裝置智慧合流讀取：支援 silent 模式，避免背景更新時干擾使用者操作
+            const fetchCloudData = async (targetUrl = gasUrl, silent = false) => {
                 if (!targetUrl) return;
-                setIsLoading(true);
+                if (!silent) setIsLoading(true);
                 try {
                     const res = await safeFetchGAS(targetUrl, { action: 'get_all' });
                     if (res.ok && res.data && res.data.status === 'success') {
-                        // ★★★ 防空洗滌安全檢查：若雲端回傳 0 筆工單但本機有資料，絕不覆蓋本機工單 ★★★
+                        // 1. 工單雙向智慧合流：以 ID 為準，保留雲端其他裝置的新增工單
                         if (Array.isArray(res.data.records)) {
                             setRecords(prev => {
                                 if (res.data.records.length === 0 && prev.length > 0) {
-                                    console.warn("⚠️ 雲端回傳 0 筆工單，系統啟動安全防護，保留本機現有工單以防誤清空！");
                                     return prev;
                                 }
                                 const map = new Map();
-                                res.data.records.forEach(r => { if (r && r.id) map.set(String(r.id), normalizeRecord(r)); });
-                                prev.forEach(r => { if (r && r.id && !map.has(String(r.id))) map.set(String(r.id), normalizeRecord(r)); });
+                                // 先放雲端回傳的最新工單
+                                res.data.records.forEach(r => { 
+                                    if (r && r.id) map.set(String(r.id), normalizeRecord(r)); 
+                                });
+                                // 若本地端有尚未同步完畢的新單，暫時保留
+                                prev.forEach(r => { 
+                                    if (r && r.id && !map.has(String(r.id))) {
+                                        map.set(String(r.id), normalizeRecord(r)); 
+                                    }
+                                });
                                 return Array.from(map.values()).sort((a, b) => parseDateSafe(b.timestamp || b.date) - parseDateSafe(a.timestamp || a.date));
                             });
                         }
 
-                        // ★★★ 智慧雙向客戶合併：以車牌為鍵值，絕不覆蓋本機剛剛編輯的資料 ★★★
+                        // 2. 客戶車籍智慧合流：以車牌號碼為準進行雙向整合
                         if (Array.isArray(res.data.customers)) {
                             setCustomers(prev => {
                                 if (res.data.customers.length === 0 && prev.length > 0) {
-                                    console.warn("⚠️ 雲端回傳 0 筆客戶，系統啟動安全防護，保留本機現有客戶資料！");
                                     return prev;
                                 }
                                 const map = new Map();
                                 res.data.customers.forEach(c => {
                                     if (c && c.plate) map.set(String(c.plate).trim().toUpperCase(), c);
                                 });
-                                // 保留本機新增但雲端尚未讀取到的客戶
                                 prev.forEach(c => {
                                     if (c && c.plate && !map.has(String(c.plate).trim().toUpperCase())) {
                                         map.set(String(c.plate).trim().toUpperCase(), c);
@@ -9944,7 +9950,6 @@ function handleSyncWorkforcePerformance(data) {
                         if (res.data.settings) {
                             const settings = res.data.settings;
 
-                            // 1. 安全解譯 shopInfo
                             let parsedShopInfo = settings.shopInfo;
                             if (typeof parsedShopInfo === 'string') {
                                 try { parsedShopInfo = JSON.parse(parsedShopInfo); } catch (e) {}
@@ -9953,21 +9958,18 @@ function handleSyncWorkforcePerformance(data) {
                                 setShopInfo(prev => ({ ...prev, ...parsedShopInfo }));
                             }
 
-                            // 2. 備料項目 quickServices
                             let parsedServices = settings.quickServices;
                             if (typeof parsedServices === 'string') {
                                 try { parsedServices = JSON.parse(parsedServices); } catch (e) {}
                             }
                             if (Array.isArray(parsedServices)) setQuickServices(parsedServices);
 
-                            // 3. 技師名冊 staffList
                             let parsedStaffList = settings.staffList;
                             if (typeof parsedStaffList === 'string') {
                                 try { parsedStaffList = JSON.parse(parsedStaffList); } catch (e) {}
                             }
                             if (Array.isArray(parsedStaffList)) setStaffList(parsedStaffList);
 
-                            // 4. 新版五階人事 staffProfiles（支援由「技師人事名冊」分行分欄表格讀回）
                             let cloudProfiles = null;
                             if (Array.isArray(settings.staffProfilesRows) && settings.staffProfilesRows.length > 0) {
                                 cloudProfiles = {};
@@ -10004,14 +10006,12 @@ function handleSyncWorkforcePerformance(data) {
                                 });
                             }
 
-                            // 5. 對帳資料 cashRecords
                             let parsedCash = settings.cashRecords;
                             if (typeof parsedCash === 'string') {
                                 try { parsedCash = JSON.parse(parsedCash); } catch (e) {}
                             }
                             if (Array.isArray(parsedCash)) setCashRecords(parsedCash);
 
-                            // 6. 主管 PIN 碼
                             if (settings.adminPin) {
                                 setCurrentPin(String(settings.adminPin));
                                 localStorage.setItem('moto_adminPin', String(settings.adminPin));
@@ -10023,13 +10023,39 @@ function handleSyncWorkforcePerformance(data) {
                 } catch (e) {
                     console.warn("Cloud sync warning:", e);
                 } finally {
-                    setIsLoading(false);
+                    if (!silent) setIsLoading(false);
                 }
             };
 
+            // 多裝置即時同步監聽：螢幕喚醒/分頁切換自動同步 + 每 25 秒背景靜默輪詢
             useEffect(() => {
                 fetchCloudData();
-            }, []);
+
+                const handleFocusSync = () => {
+                    fetchCloudData(undefined, true);
+                };
+
+                const handleVisibilityChange = () => {
+                    if (document.visibilityState === 'visible') {
+                        fetchCloudData(undefined, true);
+                    }
+                };
+
+                window.addEventListener('focus', handleFocusSync);
+                document.addEventListener('visibilitychange', handleVisibilityChange);
+
+                const pollTimer = setInterval(() => {
+                    if (document.visibilityState === 'visible') {
+                        fetchCloudData(undefined, true);
+                    }
+                }, 25000);
+
+                return () => {
+                    window.removeEventListener('focus', handleFocusSync);
+                    document.removeEventListener('visibilitychange', handleVisibilityChange);
+                    clearInterval(pollTimer);
+                };
+            }, [gasUrl]);
 
             const testConnection = async (url) => {
                 if (!url) return showAlert('請輸入 Google Apps Script 網址');
@@ -10115,280 +10141,178 @@ function handleSyncWorkforcePerformance(data) {
             const handleCreateOrder = async (orderPayload, editId = null) => {
                 setIsUploadingOrder(true);
                 const ds = new Date().toLocaleDateString('zh-TW');
-
                 const ts = new Date().toISOString();
 
-
-
                 let updatedRecords = [...records];
-
                 let targetRecord = null;
 
-
-
                 if (editId) {
-
                     updatedRecords = updatedRecords.map(r => {
-
                         if (r.id === editId) {
-
-                            targetRecord = { ...r, ...orderPayload, id: editId };
-
+                            targetRecord = { ...r, ...orderPayload, id: editId, updatedAt: ts };
                             return targetRecord;
-
                         }
-
                         return r;
-
                     });
-
                 } else {
-
                     targetRecord = {
-
                         ...orderPayload,
-
                         id: String(Date.now()),
-
                         date: ds,
-
-                        timestamp: ts
-
+                        timestamp: ts,
+                        updatedAt: ts
                     };
-
                     updatedRecords = [targetRecord, ...records];
-
                 }
-
-
 
                 setRecords(updatedRecords);
 
-
-
                 const cPlate = String(orderPayload.plate).toUpperCase();
-
                 let updatedCustomers = [...customers];
-
                 const existC = updatedCustomers.find(c => c.plate === cPlate);
-
                 const custObj = {
-
                     id: existC ? existC.id : String(Date.now()),
-
                     plate: cPlate,
-
                     name: orderPayload.name || (existC ? existC.name : ''),
-
                     phone: orderPayload.phone || (existC ? existC.phone : ''),
-
                     email: orderPayload.email || (existC ? existC.email : ''),
-
                     bikeModel: orderPayload.bikeModel || (existC ? existC.bikeModel : ''),
-
                     year: orderPayload.year || (existC ? existC.year : ''),
-
                     lastVisit: ds,
-
                     lastMileage: orderPayload.mileage || (existC ? existC.lastMileage : '')
-
                 };
-
-
 
                 if (existC) {
-
                     updatedCustomers = updatedCustomers.map(c => c.id === existC.id ? custObj : c);
-
                 } else {
-
                     updatedCustomers.push(custObj);
-
                 }
-
                 setCustomers(updatedCustomers);
 
-
-
                 const updatedServices = quickServices.map(s => {
-
                     const used = orderPayload.items.find(i => i.name === s.name);
-
                     if (used) {
-
                         return { ...s, stock: Math.max(0, (s.stock || 0) - Number(used.qty || 1)) };
-
                     }
-
                     return s;
-
                 });
-
                 setQuickServices(updatedServices);
 
-
-
+                // 單筆即時寫入後端試算表（不使用會抹殺他人資料的全清空）
                 try {
-
                     await safeFetchGAS(gasUrl, {
-
                         action: 'add_order',
-
                         record: targetRecord,
-
                         customer: custObj,
-
                         sendEmail: Boolean(orderPayload.status === 'completed' && custObj.email),
-
                         shopInfo
-
                     });
-
                 } catch (e) {
-
                     console.warn("GAS save error:", e);
-
                 }
-
-
 
                 setIsUploadingOrder(false);
-
                 setDraftOrder(INITIAL_ORDER_STATE);
-
                 setEditingOrderId(null);
 
-
-
                 if (orderPayload.status === 'completed') {
-
                     setSelectedRecord(targetRecord);
-
                     setShowReceiptModal(true);
-
                 }
-
                 setView('dashboard');
-
             };
 
-
-
+            // 工單狀態切換（附帶安全合流參數，防止洗掉未傳送欄位）
             const handleStatusChange = (id, newStatus) => {
-
-                const updated = records.map(r => r.id === id ? { ...r, status: newStatus, progressStage: newStatus === 'completed' ? '已完工' : '維修中' } : r);
-
+                const ts = new Date().toISOString();
+                const updated = records.map(r => r.id === id ? { 
+                    ...r, 
+                    status: newStatus, 
+                    progressStage: newStatus === 'completed' ? '已完工' : '維修中',
+                    updatedAt: ts 
+                } : r);
                 setRecords(updated);
-
                 const target = updated.find(r => r.id === id);
-
                 if (target && newStatus === 'completed') {
-
                     setSelectedRecord(target);
-
                     setShowReceiptModal(true);
-
                 }
-
-                safeFetchGAS(gasUrl, { action: 'save_settings', records: updated });
-
+                safeFetchGAS(gasUrl, { 
+                    action: 'save_settings', 
+                    records: updated,
+                    customers,
+                    cashRecords,
+                    quickServices,
+                    shopInfo
+                });
             };
-
-
 
             const handleUpdateOrderStage = (id, newStage) => {
-
-                const updated = records.map(r => r.id === id ? { ...r, progressStage: newStage } : r);
-
+                const ts = new Date().toISOString();
+                const updated = records.map(r => r.id === id ? { ...r, progressStage: newStage, updatedAt: ts } : r);
                 setRecords(updated);
-
-                safeFetchGAS(gasUrl, { action: 'save_settings', records: updated });
-
+                safeFetchGAS(gasUrl, { 
+                    action: 'save_settings', 
+                    records: updated,
+                    customers,
+                    cashRecords,
+                    quickServices,
+                    shopInfo
+                });
             };
-
-
 
             const handleUpdateOrderField = (id, fields) => {
-
-                const updated = records.map(r => r.id === id ? { ...r, ...fields } : r);
-
+                const ts = new Date().toISOString();
+                const updated = records.map(r => r.id === id ? { ...r, ...fields, updatedAt: ts } : r);
                 setRecords(updated);
-
-                safeFetchGAS(gasUrl, { action: 'save_settings', records: updated });
-
+                safeFetchGAS(gasUrl, { 
+                    action: 'save_settings', 
+                    records: updated,
+                    customers,
+                    cashRecords,
+                    quickServices,
+                    shopInfo
+                });
             };
 
-
-
-            // 破壞性操作防護：刪除工單需主管授權
-
+            // 破壞性操作防護：刪除工單使用專屬 delete_order 指令，防止合流復合
             const deleteRecord = (id) => {
-
                 const executeDelete = () => {
-
                     showConfirm('確定要作廢刪除此工單紀錄嗎？\n(此操作將同步自雲端試算表中移除)', () => {
-
                         const updated = records.filter(r => r.id !== id);
-
                         setRecords(updated);
-
-                        safeFetchGAS(gasUrl, { action: 'save_settings', records: updated });
-
+                        safeFetchGAS(gasUrl, { 
+                            action: 'delete_order', 
+                            id: String(id),
+                            records: updated 
+                        });
                         showAlert('工單已成功作廢刪除！');
-
                     });
-
                 };
-
                 if (!isUnlocked) {
-
                     requestAdminAuth(executeDelete);
-
                 } else {
-
                     executeDelete();
-
                 }
-
             };
-
-
 
             const requestAdminAuth = (actionCallback, forcePin = false) => {
-
                 if (isUnlocked && !forcePin) {
-
                     if (actionCallback) actionCallback();
-
                     return;
-
                 }
-
                 pendingActionRef.current = actionCallback;
-
                 setIsPinModalOpen(true);
-
             };
-
-
 
             const handleNavClick = (targetView) => {
-
                 if (['settings', 'workforce', 'quote-inventory', 'customers'].includes(targetView) && !isUnlocked) {
-
                     setPendingView(targetView);
-
                     setIsPinModalOpen(true);
-
                     return;
-
                 }
-
                 setView(targetView);
-
             };
-
-
 
             const lockNow = () => {
 
